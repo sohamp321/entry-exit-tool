@@ -45,6 +45,16 @@
       "student_id": 1,
       "action": "exit",
       "timestamp": "2025-04-08 20:53:14"
+    },
+    {
+      "id": 5,
+      "student_id": 1,
+      "student_name": "Soham",
+      "roll_number": "B21CS074",
+      "hostel_name": "G5",
+      "room_number": "350",
+      "action": "entry",
+      "timestamp": "2025-04-08 21:04:17"
     }
   ]
 }

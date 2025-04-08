@@ -153,15 +153,29 @@ class HostelDatabase:
             raise ValueError("Action must be 'entry' or 'exit'")
 
         with self.lock:
+            # Get student details for the log
+            student = None
+            for s in self.data["students"]:
+                if s["id"] == student_id:
+                    student = s
+                    break
+
+            if not student:
+                raise ValueError(f"Student with ID {student_id} not found")
+
             # Generate a unique ID for the log
             log_id = 1
             if self.data["logs"]:
                 log_id = max(log["id"] for log in self.data["logs"]) + 1
 
-            # Create log entry
+            # Create log entry with more information
             log = {
                 "id": log_id,
                 "student_id": student_id,
+                "student_name": student["name"],
+                "roll_number": student["roll_number"],
+                "hostel_name": student["hostel_name"],
+                "room_number": student["room_number"],
                 "action": action,
                 "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
@@ -184,8 +198,31 @@ class HostelDatabase:
             # Limit the number of logs
             student_logs = student_logs[:limit]
 
-            # Return in the same format as the SQLite version
-            return [(log["action"], log["timestamp"]) for log in student_logs]
+            # Return more detailed log information
+            return [(log["action"], log["timestamp"],
+                    log.get("student_name", ""),
+                    log.get("roll_number", ""),
+                    log.get("hostel_name", ""),
+                    log.get("room_number", "")) for log in student_logs]
+
+    def get_all_logs(self, limit=50):
+        """Get all logs for all students"""
+        with self.lock:
+            # Make a copy of all logs
+            all_logs = self.data["logs"].copy()
+
+            # Sort by timestamp (descending)
+            all_logs.sort(key=lambda x: x["timestamp"], reverse=True)
+
+            # Limit the number of logs
+            all_logs = all_logs[:limit]
+
+            # Return detailed log information
+            return [(log["action"], log["timestamp"],
+                    log.get("student_name", ""),
+                    log.get("roll_number", ""),
+                    log.get("hostel_name", ""),
+                    log.get("room_number", "")) for log in all_logs]
 
     def delete_student(self, student_id):
         """Delete a student from the database"""

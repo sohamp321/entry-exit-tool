@@ -180,6 +180,23 @@ class HostelAuthGUI:
 
         # Log section - title already added in create_frames
 
+        # Add log filter controls
+        log_filter_frame = ttk.Frame(self.log_frame)
+        log_filter_frame.pack(fill=tk.X, pady=(0, AppStyles.PADDING_SMALL))
+
+        # Radio buttons for log filtering
+        self.log_filter_var = tk.StringVar(value="current")
+
+        current_student_radio = ttk.Radiobutton(log_filter_frame, text="Current Student",
+                                              variable=self.log_filter_var, value="current",
+                                              command=self.refresh_logs)
+        current_student_radio.pack(side=tk.LEFT, padx=AppStyles.PADDING_SMALL)
+
+        all_logs_radio = ttk.Radiobutton(log_filter_frame, text="All Students",
+                                        variable=self.log_filter_var, value="all",
+                                        command=self.refresh_logs)
+        all_logs_radio.pack(side=tk.LEFT, padx=AppStyles.PADDING_SMALL)
+
         # Create a treeview for logs with scrollbar
         log_tree_frame = ttk.Frame(self.log_frame)
         log_tree_frame.pack(fill=tk.BOTH, expand=True)
@@ -188,13 +205,27 @@ class HostelAuthGUI:
         scrollbar = ttk.Scrollbar(log_tree_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Create treeview with improved styling
-        self.log_tree = ttk.Treeview(log_tree_frame, columns=("Action", "Timestamp"), show="headings",
+        # Create treeview with improved styling and more columns
+        columns = ("Action", "Timestamp", "Name", "Roll Number", "Hostel", "Room")
+        self.log_tree = ttk.Treeview(log_tree_frame, columns=columns, show="headings",
                                     yscrollcommand=scrollbar.set, style="Treeview")
+
+        # Configure column headings and widths
         self.log_tree.heading("Action", text="Action")
         self.log_tree.heading("Timestamp", text="Timestamp")
-        self.log_tree.column("Action", width=100, anchor=tk.CENTER)
-        self.log_tree.column("Timestamp", width=200)
+        self.log_tree.heading("Name", text="Name")
+        self.log_tree.heading("Roll Number", text="Roll Number")
+        self.log_tree.heading("Hostel", text="Hostel")
+        self.log_tree.heading("Room", text="Room")
+
+        # Set column widths and alignment
+        self.log_tree.column("Action", width=80, anchor=tk.CENTER)
+        self.log_tree.column("Timestamp", width=150)
+        self.log_tree.column("Name", width=120)
+        self.log_tree.column("Roll Number", width=100, anchor=tk.CENTER)
+        self.log_tree.column("Hostel", width=80, anchor=tk.CENTER)
+        self.log_tree.column("Room", width=60, anchor=tk.CENTER)
+
         self.log_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Configure scrollbar
@@ -387,12 +418,20 @@ class HostelAuthGUI:
         if student:
             self.current_student = student
             self.update_student_info(student)
-            self.update_logs(student[0])  # student[0] is the ID
+
+            # Refresh logs based on current filter setting
+            self.refresh_logs()
 
             # Enable entry/exit buttons
             self.entry_button.config(state=tk.NORMAL)
             self.exit_button.config(state=tk.NORMAL)
         else:
+            # If no student is recognized but we were showing a student before
+            if self.current_student is not None:
+                self.current_student = None
+                self.update_student_info(None)
+                self.refresh_logs()  # Update logs based on filter setting
+
             # Disable entry/exit buttons if no student recognized
             self.entry_button.config(state=tk.DISABLED)
             self.exit_button.config(state=tk.DISABLED)
@@ -411,6 +450,18 @@ class HostelAuthGUI:
             for label in self.info_labels.values():
                 label.config(text="")
 
+    def refresh_logs(self):
+        """Refresh logs based on the current filter setting"""
+        # Get the current filter setting
+        filter_mode = self.log_filter_var.get()
+
+        if filter_mode == "current" and self.current_student:
+            # Show logs for current student only
+            self.update_logs(self.current_student[0])
+        elif filter_mode == "all" or not self.current_student:
+            # Show all logs
+            self.show_all_logs()
+
     def update_logs(self, student_id):
         """Update the logs display for a student"""
         # Clear existing logs
@@ -419,9 +470,55 @@ class HostelAuthGUI:
         # Get logs for the student
         logs = self.database.get_student_logs(student_id)
 
+        # Add logs to the treeview with all available information
+        for log_entry in logs:
+            # Unpack the log entry
+            if len(log_entry) >= 6:  # New format with more details
+                action, timestamp, name, roll_number, hostel, room = log_entry
+            elif len(log_entry) >= 2:  # Old format with just action and timestamp
+                action, timestamp = log_entry
+                name = roll_number = hostel = room = ""
+            else:
+                continue  # Skip invalid log entries
+
+            # Insert into treeview with all columns
+            self.log_tree.insert("", "end", values=(
+                action.capitalize(),
+                timestamp,
+                name,
+                roll_number,
+                hostel,
+                room
+            ))
+
+    def show_all_logs(self):
+        """Show logs for all students"""
+        # Clear existing logs
+        self.clear_logs()
+
+        # Get all logs
+        logs = self.database.get_all_logs()
+
         # Add logs to the treeview
-        for action, timestamp in logs:
-            self.log_tree.insert("", "end", values=(action.capitalize(), timestamp))
+        for log_entry in logs:
+            # Unpack the log entry
+            if len(log_entry) >= 6:  # New format with more details
+                action, timestamp, name, roll_number, hostel, room = log_entry
+            elif len(log_entry) >= 2:  # Old format with just action and timestamp
+                action, timestamp = log_entry
+                name = roll_number = hostel = room = ""
+            else:
+                continue  # Skip invalid log entries
+
+            # Insert into treeview with all columns
+            self.log_tree.insert("", "end", values=(
+                action.capitalize(),
+                timestamp,
+                name,
+                roll_number,
+                hostel,
+                room
+            ))
 
     def clear_logs(self):
         """Clear the logs display"""
@@ -440,8 +537,8 @@ class HostelAuthGUI:
         # Log the action
         self.database.log_entry_exit(student_id, action)
 
-        # Update logs display
-        self.update_logs(student_id)
+        # Update logs display based on current filter setting
+        self.refresh_logs()
 
         # Show confirmation
         messagebox.showinfo("Success", f"{action.capitalize()} logged for {student_name}")
