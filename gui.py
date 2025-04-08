@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog, scrolledtext
 import cv2
 from PIL import Image, ImageTk
 import threading
@@ -11,12 +11,18 @@ import os
 from styles import AppStyles
 from custom_widgets import PrimaryButton, SecondaryButton, DangerButton, DefaultButton
 
+# Import NLP summary module
+from nlp_summary import ActivitySummarizer
+
 class HostelAuthGUI:
     def __init__(self, root, face_authenticator, database):
         """Initialize the GUI"""
         self.root = root
         self.face_authenticator = face_authenticator
         self.database = database
+
+        # Initialize activity summarizer
+        self.activity_summarizer = ActivitySummarizer(database)
 
         # Set window title and size
         self.root.title("Hostel Face Authentication System")
@@ -32,6 +38,9 @@ class HostelAuthGUI:
                 self.root.iconbitmap("icon.ico")
         except Exception:
             pass  # Ignore if icon is not available
+
+        # Flag for authentication method
+        self.using_voice_auth = False
 
         # Create a stop event for the video feed
         self.stop_event = threading.Event()
@@ -61,9 +70,21 @@ class HostelAuthGUI:
         self.left_frame = ttk.Frame(self.main_frame, padding=AppStyles.PADDING_MEDIUM, relief=tk.RIDGE, borderwidth=1)
         self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, AppStyles.PADDING_MEDIUM))
 
-        # Right frame for student information
+        # Right frame for student information and summaries
         self.right_frame = ttk.Frame(self.main_frame, padding=AppStyles.PADDING_MEDIUM, relief=tk.RIDGE, borderwidth=1)
         self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        # Create a notebook (tabbed interface) for the right frame
+        self.notebook = ttk.Notebook(self.right_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Create tabs
+        self.info_tab = ttk.Frame(self.notebook, padding=AppStyles.PADDING_SMALL)
+        self.summary_tab = ttk.Frame(self.notebook, padding=AppStyles.PADDING_SMALL)
+
+        # Add tabs to notebook
+        self.notebook.add(self.info_tab, text="Student Info")
+        self.notebook.add(self.summary_tab, text="Activity Summary")
 
         # Video frame with a title
         video_title_frame = ttk.Frame(self.left_frame)
@@ -87,31 +108,76 @@ class HostelAuthGUI:
         self.control_frame = ttk.Frame(self.left_frame, padding=AppStyles.PADDING_SMALL)
         self.control_frame.pack(fill=tk.X, pady=AppStyles.PADDING_SMALL)
 
+        # Student info tab
         # Student info frame with a title
-        info_title_frame = ttk.Frame(self.right_frame)
+        info_title_frame = ttk.Frame(self.info_tab)
         info_title_frame.pack(fill=tk.X, pady=(0, AppStyles.PADDING_SMALL))
         ttk.Label(info_title_frame, text="Student Information", style="Title.TLabel").pack(anchor=tk.W)
 
         # Student info in a bordered frame
-        info_container = ttk.Frame(self.right_frame, relief=tk.SUNKEN, borderwidth=1)
+        info_container = ttk.Frame(self.info_tab, relief=tk.SUNKEN, borderwidth=1)
         info_container.pack(fill=tk.BOTH, expand=True, pady=AppStyles.PADDING_SMALL)
 
         self.student_info_frame = ttk.Frame(info_container, padding=AppStyles.PADDING_MEDIUM)
         self.student_info_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Log frame with a separator and title
-        ttk.Separator(self.right_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=AppStyles.PADDING_MEDIUM)
+        # Log section with a separator and title
+        ttk.Separator(self.info_tab, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=AppStyles.PADDING_MEDIUM)
 
-        log_title_frame = ttk.Frame(self.right_frame)
+        log_title_frame = ttk.Frame(self.info_tab)
         log_title_frame.pack(fill=tk.X, pady=(0, AppStyles.PADDING_SMALL))
-        ttk.Label(log_title_frame, text="Recent Activity", style="Title.TLabel").pack(anchor=tk.W)
+        ttk.Label(log_title_frame, text="Recent Activity", style="BlackTitle.TLabel").pack(anchor=tk.W)
 
         # Log in a bordered frame
-        log_container = ttk.Frame(self.right_frame, relief=tk.SUNKEN, borderwidth=1)
+        log_container = ttk.Frame(self.info_tab, relief=tk.SUNKEN, borderwidth=1)
         log_container.pack(fill=tk.BOTH, expand=True, pady=AppStyles.PADDING_SMALL)
 
         self.log_frame = ttk.Frame(log_container, padding=AppStyles.PADDING_SMALL)
         self.log_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Summary tab
+        summary_title_frame = ttk.Frame(self.summary_tab)
+        summary_title_frame.pack(fill=tk.X, pady=(0, AppStyles.PADDING_SMALL))
+        ttk.Label(summary_title_frame, text="Activity Summary", style="Title.TLabel").pack(anchor=tk.W)
+
+        # Summary options frame
+        summary_options_frame = ttk.Frame(self.summary_tab)
+        summary_options_frame.pack(fill=tk.X, pady=AppStyles.PADDING_SMALL)
+
+        # Radio buttons for summary type
+        self.summary_type_var = tk.StringVar(value="student")
+
+        student_summary_radio = ttk.Radiobutton(summary_options_frame, text="Current Student",
+                                              variable=self.summary_type_var, value="student",
+                                              command=self.refresh_summary)
+        student_summary_radio.pack(side=tk.LEFT, padx=AppStyles.PADDING_SMALL)
+
+        hostel_summary_radio = ttk.Radiobutton(summary_options_frame, text="Entire Hostel",
+                                             variable=self.summary_type_var, value="hostel",
+                                             command=self.refresh_summary)
+        hostel_summary_radio.pack(side=tk.LEFT, padx=AppStyles.PADDING_SMALL)
+
+        # Time period dropdown
+        time_frame = ttk.Frame(summary_options_frame)
+        time_frame.pack(side=tk.RIGHT, padx=AppStyles.PADDING_SMALL)
+
+        ttk.Label(time_frame, text="Time Period:").pack(side=tk.LEFT, padx=(0, AppStyles.PADDING_SMALL))
+
+        self.time_period_var = tk.StringVar(value="7")
+        time_period_combo = ttk.Combobox(time_frame, textvariable=self.time_period_var,
+                                        values=["1", "7", "30"], width=5)
+        time_period_combo.pack(side=tk.LEFT)
+        time_period_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_summary())
+
+        # Summary text area in a bordered frame
+        summary_container = ttk.Frame(self.summary_tab, relief=tk.SUNKEN, borderwidth=1)
+        summary_container.pack(fill=tk.BOTH, expand=True, pady=AppStyles.PADDING_SMALL)
+
+        # Use scrolledtext for the summary
+        self.summary_text = scrolledtext.ScrolledText(summary_container, wrap=tk.WORD,
+                                                   font=("Helvetica", 11), padx=10, pady=10)
+        self.summary_text.pack(fill=tk.BOTH, expand=True)
+        self.summary_text.config(state=tk.DISABLED)  # Make read-only initially
 
     def create_widgets(self):
         """Create widgets for the GUI"""
@@ -134,6 +200,9 @@ class HostelAuthGUI:
         button_frame2 = ttk.Frame(self.control_frame)
         button_frame2.pack(fill=tk.X, pady=AppStyles.PADDING_SMALL)
 
+        button_frame3 = ttk.Frame(self.control_frame)
+        button_frame3.pack(fill=tk.X, pady=AppStyles.PADDING_SMALL)
+
         # Camera control buttons - using custom buttons with explicit colors
         self.start_button = PrimaryButton(button_frame1, text="Start Camera", command=self.start_video)
         self.start_button.pack(side=tk.LEFT, padx=AppStyles.PADDING_SMALL, fill=tk.X, expand=True)
@@ -153,6 +222,11 @@ class HostelAuthGUI:
         self.exit_button = DangerButton(button_frame2, text="Log Exit", command=lambda: self.log_entry_exit("exit"))
         self.exit_button.pack(side=tk.LEFT, padx=AppStyles.PADDING_SMALL, fill=tk.X, expand=True)
         self.exit_button.config(state=tk.DISABLED)
+
+        # Summary button
+        self.summary_button = SecondaryButton(button_frame3, text="Activity Summary",
+                                            command=self.show_activity_summary)
+        self.summary_button.pack(side=tk.LEFT, padx=AppStyles.PADDING_SMALL, fill=tk.X, expand=True)
 
         # Student info - title already added in create_frames
         self.info_frame = ttk.Frame(self.student_info_frame)
@@ -450,17 +524,59 @@ class HostelAuthGUI:
             for label in self.info_labels.values():
                 label.config(text="")
 
+    # Track the last log count to prevent unnecessary refreshes
+    last_log_count = 0
+    last_filter_mode = "current"
+    last_student_id = None
+
     def refresh_logs(self):
         """Refresh logs based on the current filter setting"""
         # Get the current filter setting
         filter_mode = self.log_filter_var.get()
+        current_student_id = self.current_student[0] if self.current_student else None
 
+        # Check if we need to refresh based on changes
+        refresh_needed = False
+
+        # If filter mode changed, we need to refresh
+        if filter_mode != self.__class__.last_filter_mode:
+            refresh_needed = True
+            self.__class__.last_filter_mode = filter_mode
+
+        # If student changed, we need to refresh
+        if current_student_id != self.__class__.last_student_id:
+            refresh_needed = True
+            self.__class__.last_student_id = current_student_id
+
+        # If no refresh is needed, return early
+        if not refresh_needed and not self._is_log_count_changed(filter_mode, current_student_id):
+            return
+
+        # Perform the refresh
         if filter_mode == "current" and self.current_student:
             # Show logs for current student only
             self.update_logs(self.current_student[0])
         elif filter_mode == "all" or not self.current_student:
             # Show all logs
             self.show_all_logs()
+
+    def _is_log_count_changed(self, filter_mode, student_id):
+        """Check if the log count has changed"""
+        if filter_mode == "current" and student_id:
+            # Count logs for the current student
+            logs = self.database.get_student_logs(student_id)
+            current_count = len(logs)
+        else:
+            # Count all logs
+            logs = self.database.get_all_logs()
+            current_count = len(logs)
+
+        # Check if count changed
+        if current_count != self.__class__.last_log_count:
+            self.__class__.last_log_count = current_count
+            return True
+
+        return False
 
     def update_logs(self, student_id):
         """Update the logs display for a student"""
@@ -539,6 +655,9 @@ class HostelAuthGUI:
 
         # Update logs display based on current filter setting
         self.refresh_logs()
+
+        # Update status
+        self.status_label.config(text=f"{action.capitalize()} logged for {student_name}")
 
         # Show confirmation
         messagebox.showinfo("Success", f"{action.capitalize()} logged for {student_name}")
@@ -714,3 +833,42 @@ class HostelAuthGUI:
 
         # Destroy the window
         self.root.destroy()
+
+
+
+    # Activity summary methods
+    def show_activity_summary(self):
+        """Show the activity summary tab"""
+        # Switch to the summary tab
+        self.notebook.select(self.summary_tab)
+
+        # Refresh the summary
+        self.refresh_summary()
+
+    def refresh_summary(self):
+        """Refresh the activity summary based on current settings"""
+        # Get the summary type and time period
+        summary_type = self.summary_type_var.get()
+        try:
+            days = int(self.time_period_var.get())
+        except ValueError:
+            days = 7  # Default to 7 days if invalid value
+
+        # Clear the current summary
+        self.summary_text.config(state=tk.NORMAL)
+        self.summary_text.delete(1.0, tk.END)
+
+        # Generate the appropriate summary
+        if summary_type == "student":
+            if self.current_student:
+                summary = self.activity_summarizer.generate_student_summary(self.current_student[0], days)
+            else:
+                summary = "No student currently recognized. Please authenticate a student first."
+        else:  # hostel summary
+            # Get the hostel name from the current student, or None for all hostels
+            hostel_name = self.current_student[3] if self.current_student else None
+            summary = self.activity_summarizer.generate_hostel_summary(hostel_name, days)
+
+        # Display the summary
+        self.summary_text.insert(tk.END, summary)
+        self.summary_text.config(state=tk.DISABLED)  # Make read-only again

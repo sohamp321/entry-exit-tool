@@ -65,12 +65,17 @@ class AppStyles:
         # Configure title labels
         style.configure("Title.TLabel",
                         font=AppStyles.TITLE_FONT,
-                        foreground=AppStyles.PRIMARY_COLOR)
+                        foreground="black")
 
         # Configure header labels
         style.configure("Header.TLabel",
                         font=AppStyles.HEADER_FONT,
                         foreground=AppStyles.TEXT_COLOR)
+
+        # Configure black title labels
+        style.configure("BlackTitle.TLabel",
+                        font=AppStyles.TITLE_FONT,
+                        foreground="black")
 
         # Configure buttons - default style with black text for better visibility
         style.configure("TButton",
